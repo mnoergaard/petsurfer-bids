@@ -22,9 +22,11 @@ import shutil
 import sys
 import subprocess
 from pathlib import Path
+import csv
 
 import petsurfer_km
 from petsurfer_km import __version__
+from petsurfer_km import bidsfsgd
 from petsurfer_km.cli.parser import build_parser
 from petsurfer_km.inputs import InputGroup, discover_inputs
 from petsurfer_km.steps import (
@@ -139,55 +141,6 @@ def set_defaults(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """
-    Parse and validate command-line arguments.
-
-    Args:
-        argv: Command-line arguments (defaults to sys.argv[1:])
-
-    Returns:
-        Validated namespace of arguments.
-
-    Raises:
-        SystemExit: On parsing or validation errors.
-    """
-
-    parser = argparse.ArgumentParser(
-        prog="petsurfer-km-group",
-        description=("BIDS App to perform group analysis on PET kinetic model output of PetSurfer")
-    )
-    parser.add_argument("bids_dir",type=Path,help="Root directory of the BIDS dataset.");
-    parser.add_argument("output_dir",type=Path,help="Output directory for results.");
-    parser.add_argument("--km",
-        choices=["MRTM1", "MRTM2", "Logan", "MA1"],
-        help=("Kinetic modeling method to get data from. Only one method can be specified. "
-            "MRTM1, MRTM2, Logan, MA1. "))
-    parser.add_argument('--ses',default="baseline",help="Session label.")
-    parser.add_argument('--tracer',default="11CPS13",help="Tracer to analyze (eg,11CPS13).")
-    parser.add_argument("--space",choices=["fsaverage", "MNI152NLin2009cAsym","ROI"],help=("Group space(s)."))
-    parser.add_argument("--hemi", choices=["L", "R"],help="Single hemisphere when using fsaverage.")
-    parser.add_argument('--fwhm',help="FWHM when running the kinetic modeling.")
-
-    args = parser.parse_args(argv)
-
-    if(args.space == "fsaverage" and args.hemi is None):
-        print("ERROR: must spec hemi with fsaverage");
-        sys.exit(1);
-
-    print(f"bids_dir {args.bids_dir}")
-    print(f"output_dir {args.output_dir}")
-    print(f"km {args.km}")
-    print(f"ses {args.ses}")
-    print(f"tracer {args.tracer}")
-    print(f"space {args.space}")
-    print(f"hemi {args.hemi}")
-    print(f"fwhm {args.fwhm}")
-
-    #args = set_defaults(args)
-    #validate_args(args, parser)
-    return args
-
 def ensure_fsaverage() -> None:
     """
     Set SUBJECTS_DIR to $FREESURFER/subjects to ensure fsaverage exists
@@ -272,78 +225,243 @@ def run(args: argparse.Namespace) -> int:
     return 0
 
 
+class PETsurferGroup:
+    def __init__(self,args):
+        self.bidsdir = args.bids_dir
+        self.outdir = args.output_dir
+        self.subjects = None
+        self.fsgdfile = args.fsgd;
+        self.fsgd = None;
+        self.tsv = args.tsv;
+        if(args.ses is None and args.paired is None):
+            self.sessions = ['baseline'];
+        else:
+            if(args.ses is not None): self.sessions = [args.ses];
+            else:                     self.sessions = args.paired;
+        self.paired = 0
+        if(args.paired is not None): self.paired = 1
+        self.cmc = args.cmc;
+        self.spaces = args.space;
+        self.tracer = args.tracer;
+        self.km = args.km;
+        if(self.km in ["MRTM1", "MRTM2"]): self.meas = "BPND";
+        if(self.km in ["Logan", "MA1"]):   self.meas = "VT";
+        self.volfwhm = args.vol_fwhm
+        if(args.vol_fwhm  is None): self.volfwhm = args.fwhm
+        self.surffwhm = args.surf_fwhm
+        if(args.surf_fwhm is None): self.surffwhm = args.fwhm
+        pkgdir = os.path.dirname(petsurfer_km.__file__)
+        pskmconfig = os.path.join(pkgdir, "petsurfer-km-bids-config.json")
+        self.layout = BIDSLayout(self.bidsdir,validate=False,config=["bids", "derivatives", pskmconfig]);
+
+    def get_subjects(self,space=None):
+        # Get list of subjects (sets self.subjects), either all or
+        # from an FSGD file. To do: get from a participants.tsv. This
+        # function also determines some other useful strings which are
+        # passed back to the caller
+        if(space is None): space = self.spaces[0];
+        hemi = None;
+        suffix="mimap",
+        extension=".nii.gz",
+        meas = self.meas;
+        if(space == "fsaverage-lh"):
+            stack = Path(self.outdir,space+".nii.gz")
+            bidsspacename = "fsaverage"
+            hemi = "L";
+        if(space == "fsaverage-rh"):
+            stack = Path(self.outdir,space+".nii.gz")
+            bidsspacename = "fsaverage"
+            hemi = "R";
+        if(space == "mni"):
+            bidsspacename = "MNI152NLin2009cAsym"
+            stack = Path(self.outdir,space+".nii.gz")
+        if(space == "ROI"):
+            stack = Path(self.outdir,"roi.csv")
+            bidsspacename = None; # BIDS naming does not include a space for ROI tables
+            suffix="kinpar"
+            meas=None;
+            extension=".tsv"
+        if(self.fsgdfile is None and self.tsv is None):
+            print("Getting all subjects");
+            self.subjects = self.layout.get(target="subject",session=self.sessions[0],datatype="pet",
+                                tracer=self.tracer,hemi=hemi,space=bidsspacename,model=self.km,
+                                meas=meas,suffix=suffix,extension=extension,return_type="id")
+
+            self.fsgd = bidsfsgd.BIDS_FSGD(self.fsgdfile);
+            self.subjects = self.fsgd.df["subject_id"].tolist()
+            #sessions = gd.df["ses"].tolist(); # ignore for now
+
+        return bidsspacename,hemi,suffix,extension,meas,stack;
+
+    def tsv2glmfit(self,tsvlist,outtable,participant_ids=None):
+        # This is for ROI/table analysis to merge tsv files from
+        # multiple subjects into something that mri_glmfit can
+        # ingest. The tsv file for each subject is assumed to have (at
+        # least) two columns, the first column is the ROI name and the
+        # second is the value of interest. If participant_ids is passed,
+        # then the subjectname is put as the first column.
+        if(participant_ids is not None and len(tsvlist) != len(participant_ids)):
+            print("ERORR: tsvlist length != subject list length");
+            print(len(tsvlist))
+            print(len(participant_ids))
+            return
+        roitable = [];
+        roinames = ["Subject"]; # First line of the output table
+        for k,tsvfile in enumerate(tsvlist):
+            filename, file_extension = os.path.splitext(tsvfile);
+            if(file_extension == ".csv"): delimiter=",";
+            if(file_extension == ".tsv"): delimiter="\t"; #dont use tsv
+            tsv = csv.reader(open(tsvfile, "r"), delimiter=delimiter, quotechar='"')
+            # roivals are the values for each ROI
+            roivals = [];
+            # Preprend the subjectname 
+            if(participant_ids is not None): roivals.insert(0,participant_ids[k]);
+            else:                            roivals.insert(0,f"s{k}"); # use sk as subjetname
+            for row in tsv:
+                roiname = row[0]; # first column
+                roival  = row[1]; # second column
+                if(k==1): roinames.append(roiname); # get ROI names from 1st input
+                roivals.append(roival);
+            # Add roi values to the table
+            roitable.append(roivals);
+
+        # Note: can't pass .tsv file to mri_glmfit because it thinks
+        # it is a tac file. As a hack, have to call it csv but really
+        # putting tabs as the separator. This is ugly.
+        with open(outtable, mode='w') as fp:
+            writer = csv.writer(fp, delimiter='\t');
+            writer.writerow(roinames)
+            writer.writerows(roitable)
+
+        return
+
+    def analyze_space(self,space=None):
+        if(space is None): space = self.spaces[0];
+        # Set self.subjects and get useful strings
+        bidsspacename,hemi,suffix,extension,meas,stack = self.get_subjects(space);
+
+        # Get list of files and concat them together into a stack. Order is important
+        # if doing something more than cross OSGM. For paired, it must be ses1 then ses2
+        # for each subject.
+        flist = [];
+        for sub in self.subjects: # Loop over subjects
+            for ses in self.sessions: #Loop over sessions (if longitudinal)
+                flist0 = self.layout.get(subject=sub,session=ses,datatype="pet",
+                                tracer=self.tracer,hemi=hemi,space=bidsspacename,model=self.km,
+                                meas=meas,suffix=suffix,extension=extension,return_type="filename")
+                if(len(flist0)==0):
+                    print(f"ERROR: cannot find file for {sub} {ses}")
+                    sys.exit(1);
+                flist.append(flist0[0]);
+        self.outdir.mkdir(parents=True, exist_ok=True)
+        if(space != "ROI"): # Voxel-wise space (ie, not ROI)
+            flistflat = " ".join(flist);
+            cmd = f"mri_concat --o {stack} {flistflat}"
+            if(self.paired): cmd = cmd + " --paired-diff"
+            print(cmd)
+            try:
+                result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
+                print(result.stdout)
+            except subprocess.CalledProcessError as e:
+                print("Command failed with exit code", e.returncode)
+                print(e.stdout)
+                raise RuntimeError()
+        else:
+            self.tsv2glmfit(flist,stack,self.subjects)
+
+        # Run GLM
+        glmdir = Path(self.outdir,"glm."+space)
+        cmd = f"mri_glmfit --o {glmdir}"
+        if(space != "ROI"): cmd = f"{cmd} --y {stack} --eres-save"
+        else:               cmd = f"{cmd} --table {stack}"
+        if(self.fsgdfile is None): cmd = f"{cmd} --osgm"
+        else:                      cmd = f"{cmd} --fsgd {self.fsgdfile}"
+        if(space == "fsaverage-lh"): cmd = f"{cmd} --surf fsaverage lh"
+        if(space == "fsaverage-rh"): cmd = f"{cmd} --surf fsaverage rh"
+        print(cmd)
+        try:
+            result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
+            print(result.stdout)
+        except subprocess.CalledProcessError as e:
+            print("Command failed with exit code", e.returncode)
+            print(e.stdout)
+            raise RuntimeError()
+        
+        # Run Corrections for Multiple Comparisons
+        # --cmc (0) CFT (1) nperm (2) abs/pos/neg (3) nspaces (4) CWP"))
+        if(self.cmc is not None and space != "ROI"):
+            cmd = f"mri_glmfit-sim --glmdir {glmdir} --cwp {self.cmc[4]} --perm {self.cmc[0]} {self.cmc[1]} {self.cmc[2]}"
+            nspaces = int(self.cmc[3])
+            if(nspaces > 1): cmd = f"{cmd} --{nspaces}spaces"
+            print(cmd)
+            try:
+                result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
+                print(result.stdout)
+            except subprocess.CalledProcessError as e:
+                print("Command failed with exit code", e.returncode)
+                print(e.stdout)
+                raise RuntimeError()
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """
+    Parse and validate command-line arguments.
+    Args: argv: Command-line arguments (defaults to sys.argv[1:])
+    Returns: Validated namespace of arguments.
+    Raises: SystemExit: On parsing or validation errors.
+    """
+    parser = argparse.ArgumentParser(
+        prog="petsurfer-km-group",
+        description=("BIDS App to perform group analysis on PET kinetic model output of PetSurfer")
+    )
+    parser.add_argument("bids_dir",type=Path,help="Root directory of the BIDS dataset.");
+    parser.add_argument("output_dir",type=Path,help="Output directory for results.");
+    parser.add_argument("--km",
+        choices=["MRTM1", "MRTM2", "Logan", "MA1"],
+        help=("Kinetic modeling method to get data from. Only one method can be specified. "
+            "MRTM1, MRTM2, Logan, MA1. "))
+    parser.add_argument('--ses',help="Session label.")
+    parser.add_argument('--tracer',default="11CPS13",help="Tracer to analyze (eg,11CPS13).")
+    parser.add_argument("--space",nargs="+",choices=["fsaverage-lh","fsaverage-rh", "mni","ROI"],help=("Group space(s)."))
+    parser.add_argument('--fwhm',help="volume and surface FWHM when running the kinetic modeling.")
+    parser.add_argument('--surf-fwhm',help="surface FWHM when running the kinetic modeling.")
+    parser.add_argument('--vol-fwhm',help="volume FWHM when running the kinetic modeling.")
+    parser.add_argument("--paired",nargs=2,help=("Do a paired longitudinal analysis."))
+    parser.add_argument("--fsgd",help=("FSGD file to specify the subjects/sessions"))
+    parser.add_argument("--tsv",help=("list of subjects as in participants.tsv"))
+    parser.add_argument("--cmc",nargs=5,help=("Correction for multiple comparisons: CFT nperm abs/pos/neg nspaces CWP"))
+
+    args = parser.parse_args(argv)
+
+    print(f"bids_dir {args.bids_dir}")
+    print(f"output_dir {args.output_dir}")
+    print(f"km {args.km}")
+    print(f"ses {args.ses}")
+    print(f"tracer {args.tracer}")
+    print(f"space {args.space}")
+    print(f"fwhm {args.fwhm}")
+    print(f"sfwhm {args.surf_fwhm}")
+    print(f"vfwhm {args.vol_fwhm}")
+    print(f"paired {args.paired}")
+
+    if(args.ses is not None and args.paired is not None):
+        print("ERROR: cannot spec --sess and --paired")
+        sys.exit(1);
+
+    #args = set_defaults(args)
+    #validate_args(args, parser)
+    return args
+
 def main(argv: list[str] | None = None) -> None:
     """
     Main entry point for petsurfer-km-group CLI.
-
-    Args:
-        argv: Command-line arguments (defaults to sys.argv[1:])
+    Args: argv: Command-line arguments (defaults to sys.argv[1:])
     """
     args = parse_args(argv)
-
-    if(args.km in ["MRTM1", "MRTM2"]): meas = "BPND";
-    if(args.km in ["Logan", "MA1"]):   meas = "VT";
-    print(meas)
-
-    desc = "sm"+args.fwhm;
-    print(desc)
-
-    #pskmconfig = "/autofs/space/iddhi_005/users/greve/petsurfer-bids/petsurfer_km/petsurfer-km-bids-config.json";
-    pkgdir = os.path.dirname(petsurfer_km.__file__)
-    pskmconfig = os.path.join(pkgdir, "petsurfer-km-bids-config.json")
-    layout = BIDSLayout(args.bids_dir,validate=False,config=["bids", "derivatives", pskmconfig]);
-
-    fshemi = None;
-    if(args.hemi == "L"): fshemi = "lh";
-    if(args.hemi == "R"): fshemi = "rh";
-
-    gfiles = layout.get(
-        session=args.ses,
-        datatype="pet",
-        tracer=args.tracer,
-        hemi=args.hemi,
-        space=args.space,
-        desc=desc,
-        model=args.km,
-        meas=meas,
-        suffix="mimap",
-        extension=".nii.gz",
-        return_type="filename")
-    nfiles = len(gfiles);
-    print(f"space={args.space} hemi={args.hemi} n={nfiles} ============")
-
-    if(fshemi == None):
-        stack = Path(args.output_dir,args.space+".nii.gz")
-        glmdir = Path(args.output_dir,"glm.mni152")
-    else:
-        stack = Path(args.output_dir,"fsaveage."+fshemi+".nii.gz")
-        glmdir = Path(args.output_dir,"glm.fsaverage."+fshemi);
-    cmd = f"mri_concat --o {stack} {' '.join(map(str, gfiles))}"
-    print(cmd)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
-        print("STDOUT:", result.stdout)
-        print("STDERR:", result.stderr)
-    except subprocess.CalledProcessError as e:
-        print("Command failed with exit code", e.returncode)
-        print("STDOUT:", e.stdout)
-        print("STDERR:", e.stderr)
-        sys.exit(1);
-
-    cmd = f"mri_glmfit --o {glmdir} --y {stack} --osgm"
-    if(args.space == "fsaverage"): cmd = f"{cmd} --surf fsaverage {fshemi}"
-    print(cmd)
-    try:
-        result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
-        print("STDOUT:", result.stdout)
-        print("STDERR:", result.stderr)
-    except subprocess.CalledProcessError as e:
-        print("Command failed with exit code", e.returncode)
-        print("STDOUT:", e.stdout)
-        print("STDERR:", e.stderr)
-        sys.exit(1);
-
+    psg = PETsurferGroup(args);
+    psg.get_subjects();
+    print(psg.subjects);
+    print("---------------------");
+    psg.analyze_space();
     sys.exit(0);
 
 
