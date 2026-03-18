@@ -13,7 +13,7 @@
 
 ## Overview
 
-- [Example participant-level HTML report](https://freesurfer.github.io/petsurfer-bids/sample/participant/sub-PS11_ses-baseline.html)
+- [Example participant-level HTML report](https://freesurfer.github.io/petsurfer-bids/participant/sub-PS11_ses-baseline.html)
 - [Example participant-level HTML visualization](https://freesurfer.github.io/freebrowse/?nvd=https://raw.githubusercontent.com/pwighton/freebrowse-test-data/refs/heads/main/pet/petsurfer-bids/petsurfer-km.nvd)
 
 This project is an encapsulation of the functionality in PETsurfer
