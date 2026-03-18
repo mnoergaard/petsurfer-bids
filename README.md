@@ -109,6 +109,10 @@ relevant input and output paths.  At a minimum, you will need to *bind mount*:
   have a FreeSurfer license file, you can apply for and receive one immediately
   [here](https://surfer.nmr.mgh.harvard.edu/registration.html).
 
+If you would like to preserve the temporary work directory, you can bind mount 
+a directory to that and use `--work-dir` to point in to the location inside the
+container.
+
 Refer to the documentation for your container platform
 ([Docker](https://docs.docker.com), [Singularity/SingularityCE](https://docs.sylabs.io),
 or [Apptainer](https://apptainer.org/docs)) for more information.
@@ -150,9 +154,13 @@ surface-based analyeses are performed in `fsaverage` space.  PETPrep must theref
 must produce outputs in these spaces.  To be able to perform a full
 PETsurfer-BIDS analysis, including volumetric and surface based analyses, be
 sure to include the following flag when running PETPrep:
-`--output-spaces MNI152NLin2009cAsym fsaverage`.  Refer to the 
-[PETPrep documentation](https://petprep.readthedocs.io/en/latest/) for further
-details.
+
+```
+--output-spaces MNI152NLin2009cAsym fsaverage
+```
+
+Refer to the  [PETPrep documentation](https://petprep.readthedocs.io/en/latest/)
+for further details.
 
 The location of the PETPrep output directory is by default assumed to be
 `<bids_dir>/derivatives/petprep`, however the location can be specified using the
@@ -160,22 +168,19 @@ The location of the PETPrep output directory is by default assumed to be
 
 For MRTM1 modelling, a comma seperated list of reference regions can be
 specified using the `--mrtm1-ref` flag
-(default: `Left-Cerebellum-Cortex,Right-Cerebellum-Cortex`).
+(default: `Left-Cerebellum-Cortex,Right-Cerebellum-Cortex`). For MRTM2
+modelling, a comma seperated list of high-binding regions can be specified
+using the `--mrtm2-hb` flag (default: `Left-Putamen,Right-Putamen`) For both
+the `--mrtm1-ref` and `--mrtm2-hb` flags, the region names provided should
+correspond to colum heading names in the `*_tacs.tsv` outputs from PETPrep.
 
-For MRTM2 modelling, a comma seperated list of high-binding regions can be
-specified using the `--mrtm2-hb` flag (default: `Left-Putamen,Right-Putamen`)
-
-For both the `--mrtm1-ref` and `--mrtm2-hb` flags, the region names provided
-should correspond to colum heading names in the `*_tacs.tsv` outputs from
-PETPrep.
+For Logan and Logan-MA1 modelling, the time to equilibration (t*) must be supplied
+in seconds using the `--tstar` flag.
 
 For Logan and Logan-MA1 modelling, PETsurfer-BIDS also relies on the outputs of
 [bloodstream](https://github.com/mathesong/bloodstream).  The location of the
 bloodstream output directory is by default assumed to be `<bids_dir>/derivatives/bloodstream`,
 however the location can be specified using the `--bloodstream-dir` flag.
-
-For Logan and Logan-MA1 modelling, the time to equilibration (t*) must be supplied
-in seconds using the `--tstar` flag.
 
 The `--pvc` flag selects which partial-volume-corrected output from PETPrep to
 use as input. Its value must match the `--pvc-method` value that was passed to
