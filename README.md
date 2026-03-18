@@ -6,7 +6,7 @@
 - [Usage](#usage)
   - [Installation](#installation)
   - [Participant-level analysis](#participant-level-analysis)
-  - [Group-level analysis](group-level-analysis)
+  - [Group-level analysis](#group-level-analysis)
 - [Key capabilities](#key-capabilities)
 - [Development](#development)
 - [Recommended citation](#recommended-citation)
@@ -18,7 +18,7 @@
 
 This project is an encapsulation of the functionality in PETsurfer
 within an easy-to-use BIDS app.  PETSurfer is a set of tools within
-the FreeSurfer environement for end-to-end integrated MRI-PET
+the FreeSurfer environment for end-to-end integrated MRI-PET
 analysis, including: 
 - motion correction (MC)
 - PET-MRI registration
@@ -32,12 +32,12 @@ The Brain Imaging Data Structure (BIDS) is a simple and
 intuitive way to organize and describe neuroimaging data; many
 researchers make their data available to the community in BIDS format
 via [OpenNeuro](https://openneuro.org/). Software developers have created BIDS
-apps which exploits the BIDS structure to write analysis routines that
+apps which exploit the BIDS structure to write analysis routines that
 seamlessly traverse through a BIDS tree, analyzing each data point found, and
 storing the result in BIDS format so that other applications can provide further
 analysis. 
 
-PETsurfer-BIDS is a BIDS app builds upon the outputs of
+PETsurfer-BIDS is a BIDS app that builds upon the outputs of
 [PETPrep](https://github.com/nipreps/petprep) and
 [bloodstream](https://github.com/mathesong/bloodstream). 
 
@@ -69,7 +69,7 @@ for more information.
 ## Usage
 
 PETsurfer-BIDS can perform both participant-level analyses and group-level
-analyses.  It is invoked via `petsurfer-km` and conforms to the BIDS app interface
+analyses.  It is invoked via `petsurfer-km` and conforms to the BIDS app interface.
 
 ```
 petsurfer-km bids_dir output_dir {participant,group}
@@ -77,13 +77,13 @@ petsurfer-km bids_dir output_dir {participant,group}
 
 ### Installation
 
-Like all other BIDS apps, PETsurfer-BIDS is indented to be run inside a 
+Like all other BIDS apps, PETsurfer-BIDS is intended to be run inside a 
 *container* (i.e. [docker](https://www.docker.com/),
 [apptainer](https://apptainer.org/), or [singularity](https://sylabs.io/singularity/))
 
 The container registry is located [here](https://hub.docker.com/r/freesurfer/petsurfer-bids/tags)
 
-You can pull the `v0.1.3` of the container:
+You can pull `v0.1.3` of the container:
 
 **With Docker**:
 ```
@@ -110,7 +110,7 @@ relevant input and output paths.  At a minimum, you will need to *bind mount*:
   [here](https://surfer.nmr.mgh.harvard.edu/registration.html).
 
 If you would like to preserve the temporary work directory, you can bind mount 
-a directory to that and use `--work-dir` to point in to the location inside the
+a directory to that and use `--work-dir` to point to the location inside the
 container.
 
 Refer to the documentation for your container platform
@@ -118,7 +118,7 @@ Refer to the documentation for your container platform
 or [Apptainer](https://apptainer.org/docs)) for more information.
 
 PETsurfer-BIDS can also be run locally by installing and configuring a
-FreeSurfer and python environment.  See the [Development](#development) for
+FreeSurfer and python environment.  See [Development](#development) for
 instructions.
 
 ### Participant-level analysis
@@ -140,18 +140,18 @@ in MRTM1. Specifying MRTM2 automatically includes MRTM1.
 
 For each kinetic model specified, the following analyses will be performed:
 - ROI based
-- Volumetic (voxel) based
+- Volumetric (voxel) based
 - Surface based
 
 The volumetic analysis can be disabled by specifying `--no-vol`.  The surface
 based analysis can be disabled by specifying `--no-surf`.  The flags `--lh` and
-`--rh` can be used to only run only the left or right hemisphere of the surface
-based analysis
+`--rh` can be used to run only the left or right hemisphere of the surface
+based analysis.
 
 All kinetic models rely on the outputs of [PETPrep](https://github.com/nipreps/petprep).
-Volumetic analyses are performed in `MNI152NLin2009cAsym` space and
-surface-based analyeses are performed in `fsaverage` space.  PETPrep must therefore 
-must produce outputs in these spaces.  To be able to perform a full
+Volumetric analyses are performed in `MNI152NLin2009cAsym` space and
+surface-based analyses are performed in `fsaverage` space.  PETPrep must therefore
+produce outputs in these spaces.  To be able to perform a full
 PETsurfer-BIDS analysis, including volumetric and surface based analyses, be
 sure to include the following flag when running PETPrep:
 
@@ -166,13 +166,13 @@ The location of the PETPrep output directory is by default assumed to be
 `<bids_dir>/derivatives/petprep`, however the location can be specified using the
 `--petprep-dir` flag.
 
-For MRTM1 modelling, a comma seperated list of reference regions can be
+For MRTM1 modelling, a comma separated list of reference regions can be
 specified using the `--mrtm1-ref` flag
 (default: `Left-Cerebellum-Cortex,Right-Cerebellum-Cortex`). For MRTM2
-modelling, a comma seperated list of high-binding regions can be specified
-using the `--mrtm2-hb` flag (default: `Left-Putamen,Right-Putamen`) For both
+modelling, a comma separated list of high-binding regions can be specified
+using the `--mrtm2-hb` flag (default: `Left-Putamen,Right-Putamen`). For both
 the `--mrtm1-ref` and `--mrtm2-hb` flags, the region names provided should
-correspond to colum heading names in the `*_tacs.tsv` outputs from PETPrep.
+correspond to column heading names in the `*_tacs.tsv` outputs from PETPrep.
 
 For Logan and Logan-MA1 modelling, the time to equilibration (t*) must be supplied
 in seconds using the `--tstar` flag.
@@ -202,9 +202,9 @@ alternate temporary folder, use the `--work-dir` flag.
 **Outputs**
 
 For each subject/session/kinetic-model combination, the following outputs will
-be generated and placed in the `<output_dir>/sub-<subid>/sess-<sessid>/pet/`
+be generated and placed in the `<output_dir>/sub-<subid>/ses-<sessid>/pet/`
 directory:
-- `*_mimap.[json|nii.gz]`: A molucular imaging map of VT (`meas-VT`; for Logan and Logan-MA1 models)
+- `*_mimap.[json|nii.gz]`: A molecular imaging map of VT (`meas-VT`; for Logan and Logan-MA1 models)
 or BPND (`meas-BPND`; for MRTM1 or MRTM2 models) in:
   - `MNI152NLin2009cAsym` space
   - `fsaverage` space, left (`hemi-L`) and right (`hemi-R`) hemispheres
@@ -212,11 +212,11 @@ or BPND (`meas-BPND`; for MRTM1 or MRTM2 models) in:
 
 An html report is also generated for each subject/session pair and placed in the 
 `<output_dir>/sub-<subid>/` folder.  Figures that this html report references are
-also placed in the `<output_dir>/sub-<subid>/sess-<sessid>/figures/` folder.
+also placed in the `<output_dir>/sub-<subid>/ses-<sessid>/figures/` folder.
 
 By default, PETsurfer-BIDS will also generate browser-based visualizations for
 each volumetric analysis performed (visualizations for surface-based analyses 
-are coming soon!) using [FreeBrowse](https://freesurfer.github.io/freebrowse/). These are standalone HTML files that contain all of the code to render the visualzation as well as the data it visuazlised.
+are coming soon!) using [FreeBrowse](https://freesurfer.github.io/freebrowse/). These are standalone HTML files that contain all of the code to render the visualization as well as the data it visualized.
 See the [single HTML file build](https://github.com/freesurfer/freebrowse?tab=readme-ov-file#single-html-file)
 of FreeBrowse for further information.  **No data, imaging or otherwise, leaves
 your device when viewing these visualizations**.  The generation of FreeBrowse-based
@@ -228,7 +228,7 @@ visualizations can be disabled with the `--no-freebrowse` flag.
 
 **Example**
 
-The folllowing command will process the [`ds004230`](https://openneuro.org/datasets/ds004230)
+The following command will process the [`ds004230`](https://openneuro.org/datasets/ds004230)
 dataset using the Logan-MA1 model in apptainer.
 
 It assumes:
@@ -237,7 +237,7 @@ It assumes:
 - The `ds004230` dataset has been downloaded to `~/datasets/ds004230`
 - The output will be written to `~/datasets/petsurfer-bids/ds004230`
 - PETPrep has been run on this dataset with `--output-spaces MNI152NLin2009cAsym fsaverage`
-  and the output located is at `~/datasets/petprep/ds004230`
+  and the output is located at `~/datasets/petprep/ds004230`
 - bloodstream has been run on this dataset and the output is located at `~/datasets/bloodstream/ds004230`
 - A FreeSurfer license file is located at `~/freesurfer/license.txt`
 - The time to equilibration (t*) is 540 seconds
