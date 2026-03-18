@@ -222,7 +222,7 @@ of FreeBrowse for further information.  **No data, imaging or otherwise, leaves
 your device when viewing these visualizations**.  The generation of FreeBrowse-based
 visualizations can be disabled with the `--no-freebrowse` flag.
 
-- [Example participant-level HTML report](https://freesurfer.github.io/petsurfer-bids/sample/participant/sub-PS11_ses-baseline.html)
+- [Example participant-level HTML report](https://freesurfer.github.io/petsurfer-bids/participant/sub-PS11_ses-baseline.html)
   - The `View results in freebrowse` links in this HTML report will not work because the data it references have not been uploaded to conserve space.  However the link below is an example of one such visualization.
 - [Example participant-level HTML visualization](https://freesurfer.github.io/freebrowse/?nvd=https://raw.githubusercontent.com/pwighton/freebrowse-test-data/refs/heads/main/pet/petsurfer-bids/petsurfer-km.nvd)
 
