@@ -286,7 +286,7 @@ class PETsurferGroup:
             self.subjects = self.layout.get(target="subject",session=self.sessions[0],datatype="pet",
                                 tracer=self.tracer,hemi=hemi,space=bidsspacename,model=self.km,
                                 meas=meas,suffix=suffix,extension=extension,return_type="id")
-
+        else:
             self.fsgd = bidsfsgd.BIDS_FSGD(self.fsgdfile);
             self.subjects = self.fsgd.df["subject_id"].tolist()
             #sessions = gd.df["ses"].tolist(); # ignore for now
@@ -371,7 +371,7 @@ class PETsurferGroup:
 
         # Run GLM
         glmdir = Path(self.outdir,"glm."+space)
-        cmd = f"mri_glmfit --o {glmdir}"
+        cmd = f"mri_glmfit --o {glmdir} --nii.gz"
         if(space != "ROI"): cmd = f"{cmd} --y {stack} --eres-save"
         else:               cmd = f"{cmd} --table {stack}"
         if(self.fsgdfile is None): cmd = f"{cmd} --osgm"
@@ -460,8 +460,10 @@ def main(argv: list[str] | None = None) -> None:
     psg = PETsurferGroup(args);
     psg.get_subjects();
     print(psg.subjects);
-    print("---------------------");
-    psg.analyze_space();
+    for space in args.space:
+        print(f"{space}---------------------");
+        psg.analyze_space(space);
+    print("petsurfer-bids run_group done");
     sys.exit(0);
 
 
