@@ -333,6 +333,21 @@ def run(args: argparse.Namespace) -> int:
 
     if not input_groups:
         logger.error("No valid input groups found. Nothing to process.")
+        logger.error(
+            "Troubleshooting: verify --petprep-dir points to the PETPrep derivative "
+            "root (it should contain sub-*/ses-*/pet folders), and that --pvc "
+            "matches the PETPrep filenames (for example pvc-RBV)."
+        )
+        if "logan" in args.km_method or "logan-ma1" in args.km_method:
+            logger.error(
+                "Troubleshooting: Logan/Logan-MA1 require arterial input files. "
+                "Verify --bloodstream-dir points to the bloodstream derivative root "
+                "(the app will auto-detect a nested Primary_Analysis/ folder)."
+            )
+        logger.error(
+            "Troubleshooting: check that the output path argument is correct. "
+            "A common typo is '/data/ouput' instead of '/data/output'."
+        )
         return 1
 
     logger.info(f"Processing {len(input_groups)} subject/session combination(s)")
