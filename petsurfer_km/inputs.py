@@ -13,6 +13,19 @@ from bids import BIDSLayout
 logger = logging.getLogger("petsurfer_km")
 
 
+def _filter_files_by_pvc(files: list[str], pvc: str | None) -> list[str]:
+    """Filter file list by PVC entity in filename.
+
+    Uses case-insensitive filename matching instead of relying on PyBIDS
+    entity parsing, because some datasets may contain upper-case PVC labels
+    (e.g., ``pvc-RBV``), which are not always captured as valid entities.
+    """
+    if not pvc:
+        return files
+    pvc_pattern = re.compile(rf"_pvc-{re.escape(pvc)}(?:_|\.|$)", re.IGNORECASE)
+    return [f for f in files if pvc_pattern.search(Path(f).name)]
+
+
 @dataclass
 class InputGroup:
     """A group of input files for a single subject/session."""
@@ -150,8 +163,6 @@ def _find_petprep_files(
     base_query = {"subject": subject}
     if session:
         base_query["session"] = session
-    if pvc:
-        base_query["pvc"] = pvc
 
     files = {
         "pet_mni": None,
@@ -170,6 +181,7 @@ def _find_petprep_files(
         return_type="filename",
         invalid_filters="allow",
     )
+    mni_files = _filter_files_by_pvc(mni_files, pvc)
     if mni_files:
         files["pet_mni"] = Path(mni_files[0])
 
@@ -184,6 +196,7 @@ def _find_petprep_files(
             return_type="filename",
             invalid_filters="allow",
         )
+        fsaverage = _filter_files_by_pvc(fsaverage, pvc)
         if fsaverage:
             files[f"pet_fsaverage_{hemi_key}"] = Path(fsaverage[0])
 
@@ -191,14 +204,13 @@ def _find_petprep_files(
     tacs_query = {"subject": subject, "extension": ".tsv"}
     if session:
         tacs_query["session"] = session
-    if pvc:
-        tacs_query["pvc"] = pvc
     tacs_files = layout.get(
         **tacs_query,
         suffix="tacs",
         return_type="filename",
         invalid_filters="allow",
     )
+    tacs_files = _filter_files_by_pvc(tacs_files, pvc)
     if tacs_files:
         files["tacs"] = Path(tacs_files[0])
 
@@ -221,6 +233,30 @@ def _find_bloodstream_files(
     if aif_files:
         files["input_function"] = Path(aif_files[0])
 
+    return files
+
+
+def _find_bloodstream_files_fallback(
+    bloodstream_dir: Path,
+    subject: str,
+    session: str | None,
+) -> dict:
+    """Find bloodstream files via direct filesystem search (no PyBIDS)."""
+    files = {"input_function": None}
+    base = bloodstream_dir / f"sub-{subject}"
+    if session:
+        base = base / f"ses-{session}" / "pet"
+    else:
+        base = base / "pet"
+
+    if not base.exists():
+        return files
+
+    matches = sorted(base.glob(f"sub-{subject}_*inputfunction.tsv"))
+    if session:
+        matches = [m for m in matches if f"_ses-{session}_" in m.name]
+    if matches:
+        files["input_function"] = matches[0]
     return files
 
 
@@ -277,7 +313,7 @@ def discover_inputs(
             # Try loading without derivative validation
             logger.warning(
                 f"Could not load bloodstream as derivative: {e}. "
-                "Trying without derivative validation."
+                "Trying without derivative validation (non-fatal)."
             )
             try:
                 bloodstream_layout = BIDSLayout(
@@ -286,7 +322,13 @@ def discover_inputs(
                     is_derivative=False,
                 )
             except Exception as e2:
-                logger.warning(f"Could not load bloodstream layout: {e2}")
+                logger.warning(
+                    "Could not load bloodstream layout: %s. "
+                    "Will fall back to direct filesystem discovery for "
+                    "arterial input functions.",
+                    e2,
+                )
+    bloodstream_search_dir = bloodstream_dir
 
     # Get list of subjects
     subjects = petprep_layout.get_subjects()
@@ -326,6 +368,11 @@ def discover_inputs(
             if bloodstream_layout:
                 bloodstream_files = _find_bloodstream_files(
                     bloodstream_layout, subject, session
+                )
+                group.input_function = bloodstream_files["input_function"]
+            elif bloodstream_search_dir and bloodstream_search_dir.exists():
+                bloodstream_files = _find_bloodstream_files_fallback(
+                    bloodstream_search_dir, subject, session
                 )
                 group.input_function = bloodstream_files["input_function"]
 
